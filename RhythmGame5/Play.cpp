@@ -7,7 +7,8 @@
 #include "play.h"
 #include "Note.h"
 #include "Parser.h"
-
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")  // GDI+ 라이브러리 링크
 #pragma comment(lib, "winmm.lib") // Windows 멀티미디어 라이브러리 링크
 
 extern std::vector<Note> notes; // 외부에서 정의된 Note 벡터
@@ -21,67 +22,121 @@ std::chrono::steady_clock::time_point startTime; // 게임 시작 시간
 // 게임 초기화 함수
 void InitializeGame() {
     LoadNotes("Stellar.osu"); // osu! 파일에서 노트 로드
-    PlaySound(TEXT("audio.wav"), 0, SND_FILENAME | SND_ASYNC); // 배경 음악 재생
+   // PlaySound(TEXT("audio.wav"), 0, SND_FILENAME | SND_ASYNC); // 배경 음악 재생
     startTime = std::chrono::steady_clock::now(); // 시작 시간 기록
-}
-
-// 게임이 시작된 후 경과 시간을 밀리초 단위로 반환하는 함수
-int GetElapsedTime() {
-    auto now = std::chrono::steady_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime);
-    return static_cast<int>(duration.count());
 }
 
 // 게임 업데이트 함수 (노트 업데이트 및 게임 상태 체크)
 void UpdateGame(HWND hWnd) {
-    int currentTime = GetElapsedTime();
-    UpdateNotes(currentTime);
 
     // 생명이 다 되었을 때 게임 오버
     if (life <= 0) {
         isGameOver = true;
-        std::cout << "게임 오버!" << std::endl;
     }
 
     InvalidateRect(hWnd, NULL, TRUE); // 화면 갱신
 }
 
-// 게임 화면을 그리는 함수 정의
-void DrawGame(HDC hdc, RECT& rcPaint) {
-    // 노트 그리기
-    for (Note& note : notes) {
-        note.Draw(hdc);
+void HandleHit(Note& note) {
+    // 노트를 정확히 맞췄을 때
+    if (!note.isHit) {  // 이미 맞은 노트는 처리하지 않음
+        note.isHit = true;  // 노트를 맞췄다고 표시
+        notes.erase(std::remove(notes.begin(), notes.end(), note), notes.end());  // 벡터에서 제거
+
+        if (life < 10) {
+            life++;  // 맞췄을 때 생명 증가
+        }
     }
+    else {
+        if (life > 0) {
+            life--;  // 생명 1 감소
+        }
+    }
+}
+
+// 타이밍에 맞는지 확인하는 함수
+bool IsNoteHit(const Note& note, WPARAM keyPressed) {
+    // 노트가 히트 가능한 타이밍에 있는지 확인
+    auto currentTime = std::chrono::steady_clock::now();
+    auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count();
+
+    if (elapsedTime >= note.startTime - 100 && elapsedTime <= note.startTime + 100) {  // 타이밍 100ms 차이로 허용
+        // 'X' 또는 'Z' 키가 눌렸을 때 처리
+        if (keyPressed == 'X' || keyPressed == 'Z') {  // X 또는 Z 키가 눌리면 히트
+            return true;
+        }
+    }
+    return false;
+}
+
+// 게임 화면을 그리는 함수 정의
+void DrawGame(HDC hdc, RECT& rcPaint, HWND hWnd) {
+
+    /// GDI+ 초기화
+    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+    ULONG_PTR gdiplusToken;  // GDI+ 토큰 변수
+    Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+
+    // 이미지 로드
+    Gdiplus::Image image(L"background_dark.bmp");
+    if (image.GetLastStatus() != Gdiplus::Ok) {
+        MessageBox(hWnd, L"이미지를 로드하는 데 실패했습니다.", L"오류", MB_OK | MB_ICONERROR);
+    }
+
+    // 창 크기 가져오기
+    RECT rect;
+    GetClientRect(hWnd, &rect);
+
+    // 화면 크기에 따른 스케일 계산
+    float scaleX = static_cast<float>(rect.right) / 512.0f;  // osu! 기본 너비
+    float scaleY = static_cast<float>(rect.bottom) / 384.0f; // osu! 기본 높이
+
+    // GDI+로 배경 이미지 그리기
+    Gdiplus::Graphics graphics(hdc);
+    graphics.DrawImage(&image, 0, 0, rect.right, rect.bottom);
 
     // 생명바 그리기
     int maxLife = 10;
-    int lifeWidth = 200;
+    int lifeWidth = 400;
     int lifeHeight = 20;
     int currentLifeWidth = static_cast<int>((static_cast<float>(life) / maxLife) * lifeWidth);
 
-    // 배경 색상
-    RECT bgRect = { 10, 10, 10 + lifeWidth, 10 + lifeHeight };
-    HBRUSH hBrush = CreateSolidBrush(RGB(150, 150, 150));
-    FillRect(hdc, &bgRect, hBrush);
-    DeleteObject(hBrush);
-
     // 현재 생명 색상
     RECT lifeRect = { 10, 10, 10 + currentLifeWidth, 10 + lifeHeight };
-    hBrush = CreateSolidBrush(RGB(0, 255, 0));
+    HBRUSH hBrush = CreateSolidBrush(RGB(0, 255, 0));
     FillRect(hdc, &lifeRect, hBrush);
     DeleteObject(hBrush);
 
+    /*std::wstring msg = L"노트 벡터 크기: " + std::to_wstring(notes.size());
+    MessageBox(hWnd, msg.c_str(), L"디버깅 메시지", MB_OK);*/
+
+    //std::cout << "노트 벡터 크기: " << notes.size() << std::endl;  // 벡터 크기 출력
+    if (notes.empty()) {
+        OutputDebugString(L"노트가 없습니다.\n");
+    }
+
+    // 노트 그리기
+    for (Note& note : notes) {
+            OutputDebugString(L"그려\n");// 디버깅용
+            // 노트 화면 좌표 계산
+            int screenX = static_cast<int>(note.x * scaleX);
+            int screenY = static_cast<int>(note.y * scaleY);
+
+            // Note::Draw 호출
+            note.Draw(hdc, screenX, screenY, scaleX, scaleY);
+    }
+
+    // 텍스트 색상, 크기 등 스타일을 설정할 수 있습니다.
     if (isGameOver) {
         std::wstring gameOverText = L"게임 오버!";
+        SetTextColor(hdc, RGB(255, 0, 0));  // 빨간색 텍스트
+        SetBkMode(hdc, TRANSPARENT);  // 배경 없이 텍스트만 그리기
         TextOut(hdc, 250, 250, gameOverText.c_str(), gameOverText.length());
     }
     else if (isGameClear) {
         std::wstring gameClearText = L"게임 클리어!";
+        SetTextColor(hdc, RGB(0, 255, 0));  // 초록색 텍스트
+        SetBkMode(hdc, TRANSPARENT);  // 배경 없이 텍스트만 그리기
         TextOut(hdc, 250, 250, gameClearText.c_str(), gameClearText.length());
-    }
-
-    // 확인용 코드
-    if (!PlaySound(TEXT("audio.wav"), 0, SND_FILENAME | SND_ASYNC)) {
-        std::cerr << "오디오 파일 재생 실패!" << std::endl;
     }
 }

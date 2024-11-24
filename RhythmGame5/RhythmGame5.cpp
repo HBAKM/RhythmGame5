@@ -58,8 +58,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     return (int) msg.wParam;
 }
 
-
-
 //
 //  함수: MyRegisterClass()
 //
@@ -114,6 +112,44 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    return TRUE;
 }
 
+// 노트 히트 여부를 확인하는 함수
+bool IsMouseOverNote(const POINT& mousePos, const Note& note) {
+    // 노트가 원 형태일 경우 (타입이 1인 경우)
+    if (note.type == 1) {
+        int radius = 20;  // 원 반지름 (기본 값)
+        int dx = mousePos.x - note.x;
+        int dy = mousePos.y - note.y;
+        return (dx * dx + dy * dy <= radius * radius);  // 원 안에 있으면 true 반환
+    }
+    // 슬라이더 형태일 경우 (타입이 2인 경우)
+    else if (note.type == 2) {
+        // 슬라이더는 여러 개의 점으로 정의되므로, 슬라이더 경로를 따라 마우스가 있으면 히트 처리
+        for (size_t i = 0; i < note.sliderPoints.size() - 1; ++i) {
+            POINT start = note.sliderPoints[i];
+            POINT end = note.sliderPoints[i + 1];
+
+            // 선분에 대해 가까운 지점인지 확인
+            float dx = end.x - start.x;
+            float dy = end.y - start.y;
+            float length = sqrt(dx * dx + dy * dy);
+            float t = ((mousePos.x - start.x) * dx + (mousePos.y - start.y) * dy) / (length * length);
+
+            // t 값이 0과 1 사이일 때는 선분 위에 가까운 점이 있다는 의미
+            if (t >= 0 && t <= 1) {
+                float closestX = start.x + t * dx;
+                float closestY = start.y + t * dy;
+                int distX = mousePos.x - closestX;
+                int distY = mousePos.y - closestY;
+                int distanceSquared = distX * distX + distY * distY;
+                if (distanceSquared <= 25 * 25) { // 일정 거리 내에 있으면 히트
+                    return true;
+                }
+            }
+        }
+    }
+    return false;  // 그 외에는 히트하지 않음
+}
+
 //
 //  함수: WndProc(HWND, UINT, WPARAM, LPARAM)
 //
@@ -127,6 +163,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 HWND hButton;         // '시작하기' 버튼 핸들
 bool isPlaying = false; // 게임 진행 여부 플래그
+static bool isHomeScreen = true; // 홈 화면 표시 여부를 나타내는 플래그
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -134,9 +171,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
     case WM_CREATE:
         {
-            // 게임 초기화 함수
-            void InitializeGame();
-
             // 버튼의 크기 구하기 (너비 200px, 높이 50px)
             int buttonWidth = 200;
             int buttonHeight = 50;
@@ -159,8 +193,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if (LOWORD(wParam) == 1) { // '시작하기' 버튼 클릭
                 ShowWindow(hButton, SW_HIDE); // 버튼 숨기기
                 isPlaying = true; // 게임 시작
+                isHomeScreen = false; // 홈 화면 비활성화
                 InvalidateRect(hWnd, NULL, TRUE); // 화면 무효화
+                InitializeGame();
             }
+
         }
         break;
     case WM_PAINT:
@@ -169,16 +206,110 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             HDC hdc = BeginPaint(hWnd, &ps);
 
             if (isPlaying) {
-                DrawGame(hdc, ps.rcPaint);
+                DrawGame(hdc, ps.rcPaint, hWnd);
             }
+
+            if (isHomeScreen) {
+                // 배경 이미지 로드
+                HBITMAP hBackground = (HBITMAP)LoadImage(NULL, L"background.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
+                if (hBackground == NULL) {
+                    MessageBox(hWnd, L"배경 이미지를 로드하는데 실패했습니다.", L"오류", MB_OK | MB_ICONERROR);
+                }
+                // 배경 그리기
+                HDC hMemDC = CreateCompatibleDC(hdc);
+                HBITMAP hOldBitmap = (HBITMAP)SelectObject(hMemDC, hBackground);
+
+                BITMAP bmp;
+                GetObject(hBackground, sizeof(BITMAP), &bmp);
+
+                // 클라이언트 영역 크기를 가져와 창 크기에 맞게 설정
+                RECT rect;
+                GetClientRect(hWnd, &rect);
+                int windowWidth = rect.right;
+                int windowHeight = rect.bottom;
+
+                // StretchBlt를 사용하여 배경을 창 크기에 맞게 그리기
+                StretchBlt(hdc, 0, 0, windowWidth, windowHeight, hMemDC, 0, 0, bmp.bmWidth, bmp.bmHeight, SRCCOPY);
+
+                // 정리
+                SelectObject(hMemDC, hOldBitmap);
+                DeleteDC(hMemDC);
+                DeleteObject(hBackground);
+                // 
+                // 게임 제목 및 설명 텍스트 그리기
+                // 배경을 투명하게 설정
+                SetBkMode(hdc, TRANSPARENT); // 투명 배경으로 설정
+
+                HFONT hFont = CreateFont(100, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, L"Arial");
+                HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+
+                // 텍스트를 중앙에 위치시키기 위한 좌표 계산
+                int textX = (windowWidth - 700) / 2;
+                int textY = (windowHeight - 100) / 2 - 200;  // 수직 중앙보다 위로 이동
+
+                RECT textRect = { textX, textY, textX + 700, textY + 100 };
+
+                // 그림자 텍스트 그리기 (폰트 크기를 키운 뒤, 위치를 이동시켜 그리기)
+                RECT shadowRect = textRect;
+                OffsetRect(&shadowRect, 3, 3);  // 약간 오른쪽 아래로 이동
+                SetTextColor(hdc, RGB(1, 45, 106)); // 그림자 색상 설정
+                DrawText(hdc, L"RhythmGame", -1, &shadowRect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+
+                // 텍스트 그리기
+                SetTextColor(hdc, RGB(255, 250, 240)); // 텍스트 색상 설정
+                DrawText(hdc, L"RhythmGame", -1, &textRect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+
+                // 정리
+                SelectObject(hdc, hOldFont);
+                DeleteObject(hFont);
+
+                // 게임 방법 텍스트 넣기
+                HFONT instructionFont = CreateFont(30, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, L"Arial");
+                HFONT oldFont = (HFONT)SelectObject(hdc, instructionFont);
+
+                // 게임 방법 텍스트 위치 설정
+                int instructionTextX = textX;
+                int instructionTextY = textY + 200; // 제목 아래에 위치 조정
+                RECT instructionRect = { instructionTextX, instructionTextY, instructionTextX + 700, instructionTextY + 50 };
+
+                // 그림자 텍스트 그리기 (폰트 크기를 키운 뒤, 위치를 이동시켜 그리기)
+                RECT instructionShadowRect = instructionRect;
+                OffsetRect(&instructionShadowRect, 1, 1);  // 약간 오른쪽 아래로 이동
+                SetTextColor(hdc, RGB(1, 45, 106)); // 그림자 색상 설정
+                DrawText(hdc, L"< 'x' or 'z' + 마우스 > 로 적절한 타이밍에 맞춰 플레이하세요! 사운드 있음", -1, &instructionShadowRect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+
+                // 게임 방법 텍스트 그리기
+                SetTextColor(hdc, RGB(255, 250, 240)); // 텍스트 색상 설정
+                DrawText(hdc, L"< 'x' or 'z' + 마우스 > 로 적절한 타이밍에 맞춰 플레이하세요! 사운드 있음", -1, &instructionRect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+
+                // 정리
+                SelectObject(hdc, hOldFont);
+                DeleteObject(hFont);
+                SelectObject(hdc, oldFont);
+                DeleteObject(instructionFont);
+                DeleteObject(instructionFont);
+            }
+            
             EndPaint(hWnd, &ps);
         }
         break;
     case WM_KEYDOWN:
-        if (wParam == VK_ESCAPE) {
-            SendMessage(hWnd, WM_CLOSE, 0, 0); // ESC 키로 게임 종료
+        {
+            if (wParam == VK_ESCAPE) {
+                SendMessage(hWnd, WM_CLOSE, 0, 0); // ESC 키로 게임 종료
+            }
+            else if (wParam == 'X' || wParam == 'Z') {
+                // 키 입력에 따라 노트를 확인
+                for (auto& note : notes) {
+                    // 이 부분에서 노트의 타이밍을 확인하여 맞는 노트를 찾음
+                    if (IsNoteHit(note, wParam)) {
+                        HandleHit(note);  // 맞은 노트 처리
+                        break; // 하나의 노트만 처리하면 되므로 바로 종료
+                    }
+                }
+            }
         }
-        break;
+        break;       
     case WM_DESTROY:
         PostQuitMessage(0);
         break;

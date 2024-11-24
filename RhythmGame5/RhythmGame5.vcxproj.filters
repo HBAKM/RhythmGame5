@@ -63,10 +63,10 @@
     <Image Include="RhythmGame5.ico">
       <Filter>리소스 파일</Filter>
     </Image>
-    <Image Include="background.jpg">
+    <Image Include="background.bmp">
       <Filter>리소스 파일</Filter>
     </Image>
-    <Image Include="background_dark.jpg">
+    <Image Include="background_dark.bmp">
       <Filter>리소스 파일</Filter>
     </Image>
   </ItemGroup>
