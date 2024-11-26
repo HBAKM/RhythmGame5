@@ -52,6 +52,7 @@ extern std::chrono::steady_clock::time_point startTime;
 
 // 함수 선언
 void LoadNotes(const std::string& filename);
+void DrawNotes(HDC hdc, RECT rect, HWND hWnd, int currentTime);
 void DrawCircleOutline(HDC hdc, int centerX, int centerY, int radius, int thickness);
 int GetElapsedTime();
 

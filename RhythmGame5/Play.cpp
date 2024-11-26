@@ -17,17 +17,28 @@ int life = 10; // 초기 생명
 bool isGameOver = false; // 게임 종료 상태
 bool isGameClear = false; // 게임 클리어 상태
 
-std::chrono::steady_clock::time_point startTime; // 게임 시작 시간
+// std::chrono: 현재시간 가져오기
+// steady_clock: 경과 시간(Elapsed Time)을 계산
+// time_point: 특정시점
+extern std::chrono::steady_clock::time_point startTime; // 게임 시작 시간
 
 // 게임 초기화 함수
 void InitializeGame() {
     LoadNotes("Stellar.osu"); // osu! 파일에서 노트 로드
    // PlaySound(TEXT("audio.wav"), 0, SND_FILENAME | SND_ASYNC); // 배경 음악 재생
-    startTime = std::chrono::steady_clock::now(); // 시작 시간 기록
+    startTime = std::chrono::steady_clock::now(); // 현재 시간을 시작시간으로 (게임 시작시간)
 }
 
 // 게임 업데이트 함수 (노트 업데이트 및 게임 상태 체크)
 void UpdateGame(HWND hWnd) {
+    int currentTime = GetElapsedTime();
+
+    // 타이밍에 맞지 않으면 노트 제거
+    notes.erase(std::remove_if(notes.begin(), notes.end(),
+        [currentTime](const Note& note) {
+            return currentTime > note.startTime + 500; // 타이밍 초과
+        }),
+        notes.end());
 
     // 생명이 다 되었을 때 게임 오버
     if (life <= 0) {
@@ -55,22 +66,15 @@ void HandleHit(Note& note) {
 }
 
 // 타이밍에 맞는지 확인하는 함수
-bool IsNoteHit(const Note& note, WPARAM keyPressed) {
+bool IsNoteHit(const Note& note, WPARAM keyPressed, POINT mousePos) {
     // 노트가 히트 가능한 타이밍에 있는지 확인
     auto currentTime = std::chrono::steady_clock::now();
     auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count();
-
-    if (elapsedTime >= note.startTime - 100 && elapsedTime <= note.startTime + 100) {  // 타이밍 100ms 차이로 허용
-        // 'X' 또는 'Z' 키가 눌렸을 때 처리
-        if (keyPressed == 'X' || keyPressed == 'Z') {  // X 또는 Z 키가 눌리면 히트
-            return true;
-        }
-    }
     return false;
 }
 
 // 게임 화면을 그리는 함수 정의
-void DrawGame(HDC hdc, RECT& rcPaint, HWND hWnd) {
+void DrawGame(HDC hdc, RECT& rcPaint, HWND hWnd, int currentTime) {
 
     /// GDI+ 초기화
     Gdiplus::GdiplusStartupInput gdiplusStartupInput;
@@ -79,15 +83,16 @@ void DrawGame(HDC hdc, RECT& rcPaint, HWND hWnd) {
 
     // 이미지 로드
     Gdiplus::Image image(L"background_dark.bmp");
-    if (image.GetLastStatus() != Gdiplus::Ok) {
+    /*if (image.GetLastStatus() != Gdiplus::Ok) {
         MessageBox(hWnd, L"이미지를 로드하는 데 실패했습니다.", L"오류", MB_OK | MB_ICONERROR);
-    }
+    }*/
 
     // 창 크기 가져오기
     RECT rect;
     GetClientRect(hWnd, &rect);
 
     // 화면 크기에 따른 스케일 계산
+    // scaleX, scaleY: 스케일을 조정할 비율. 게임 화면 크기에 따라 노트의 크기를 조절 
     float scaleX = static_cast<float>(rect.right) / 512.0f;  // osu! 기본 너비
     float scaleY = static_cast<float>(rect.bottom) / 384.0f; // osu! 기본 높이
 
@@ -107,36 +112,33 @@ void DrawGame(HDC hdc, RECT& rcPaint, HWND hWnd) {
     FillRect(hdc, &lifeRect, hBrush);
     DeleteObject(hBrush);
 
-    /*std::wstring msg = L"노트 벡터 크기: " + std::to_wstring(notes.size());
+  /*  std::wstring msg = L"노트 벡터 크기: " + std::to_wstring(notes.size());
     MessageBox(hWnd, msg.c_str(), L"디버깅 메시지", MB_OK);*/
-
-    //std::cout << "노트 벡터 크기: " << notes.size() << std::endl;  // 벡터 크기 출력
+    
     if (notes.empty()) {
-        OutputDebugString(L"노트가 없습니다.\n");
+        OutputDebugString(L"노트가 없습니다.\n"); // 디버깅용
     }
 
     // 노트 그리기
-    for (Note& note : notes) {
-            OutputDebugString(L"그려\n");// 디버깅용
-            // 노트 화면 좌표 계산
-            int screenX = static_cast<int>(note.x * scaleX);
-            int screenY = static_cast<int>(note.y * scaleY);
+    for (auto& note : notes) {
+        // 노트의 등장 시간이 현재 시간보다 작거나 같으면 화면에 그린다
+        if (note.startTime <= currentTime) {
+            // 노트 그리기
+            void DrawGame(HDC hdc, RECT & rcPaint, HWND hWnd, int currentTime);
+        }
 
-            // Note::Draw 호출
-            note.Draw(hdc, screenX, screenY, scaleX, scaleY);
-    }
-
-    // 텍스트 색상, 크기 등 스타일을 설정할 수 있습니다.
-    if (isGameOver) {
-        std::wstring gameOverText = L"게임 오버!";
-        SetTextColor(hdc, RGB(255, 0, 0));  // 빨간색 텍스트
-        SetBkMode(hdc, TRANSPARENT);  // 배경 없이 텍스트만 그리기
-        TextOut(hdc, 250, 250, gameOverText.c_str(), gameOverText.length());
-    }
-    else if (isGameClear) {
-        std::wstring gameClearText = L"게임 클리어!";
-        SetTextColor(hdc, RGB(0, 255, 0));  // 초록색 텍스트
-        SetBkMode(hdc, TRANSPARENT);  // 배경 없이 텍스트만 그리기
-        TextOut(hdc, 250, 250, gameClearText.c_str(), gameClearText.length());
+        // 텍스트 색상, 크기 등 스타일을 설정할 수 있습니다.
+        if (isGameOver) {
+            std::wstring gameOverText = L"게임 오버!";
+            SetTextColor(hdc, RGB(255, 0, 0));  // 빨간색 텍스트
+            SetBkMode(hdc, TRANSPARENT);  // 배경 없이 텍스트만 그리기
+            TextOut(hdc, 250, 250, gameOverText.c_str(), gameOverText.length());
+        }
+        else if (isGameClear) {
+            std::wstring gameClearText = L"게임 클리어!";
+            SetTextColor(hdc, RGB(0, 255, 0));  // 초록색 텍스트
+            SetBkMode(hdc, TRANSPARENT);  // 배경 없이 텍스트만 그리기
+            TextOut(hdc, 250, 250, gameClearText.c_str(), gameClearText.length());
+        }
     }
 }

@@ -112,43 +112,43 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    return TRUE;
 }
 
-// 노트 히트 여부를 확인하는 함수
-bool IsMouseOverNote(const POINT& mousePos, const Note& note) {
-    // 노트가 원 형태일 경우 (타입이 1인 경우)
-    if (note.type == 1) {
-        int radius = 20;  // 원 반지름 (기본 값)
-        int dx = mousePos.x - note.x;
-        int dy = mousePos.y - note.y;
-        return (dx * dx + dy * dy <= radius * radius);  // 원 안에 있으면 true 반환
-    }
-    // 슬라이더 형태일 경우 (타입이 2인 경우)
-    else if (note.type == 2) {
-        // 슬라이더는 여러 개의 점으로 정의되므로, 슬라이더 경로를 따라 마우스가 있으면 히트 처리
-        for (size_t i = 0; i < note.sliderPoints.size() - 1; ++i) {
-            POINT start = note.sliderPoints[i];
-            POINT end = note.sliderPoints[i + 1];
-
-            // 선분에 대해 가까운 지점인지 확인
-            float dx = end.x - start.x;
-            float dy = end.y - start.y;
-            float length = sqrt(dx * dx + dy * dy);
-            float t = ((mousePos.x - start.x) * dx + (mousePos.y - start.y) * dy) / (length * length);
-
-            // t 값이 0과 1 사이일 때는 선분 위에 가까운 점이 있다는 의미
-            if (t >= 0 && t <= 1) {
-                float closestX = start.x + t * dx;
-                float closestY = start.y + t * dy;
-                int distX = mousePos.x - closestX;
-                int distY = mousePos.y - closestY;
-                int distanceSquared = distX * distX + distY * distY;
-                if (distanceSquared <= 25 * 25) { // 일정 거리 내에 있으면 히트
-                    return true;
-                }
-            }
-        }
-    }
-    return false;  // 그 외에는 히트하지 않음
-}
+//// 노트 히트 여부를 확인하는 함수
+//bool IsMouseOverNote(const POINT& mousePos, const Note& note) {
+//    // 노트가 원 형태일 경우 (타입이 1인 경우)
+//    if (note.type == 1) {
+//        int radius = 20;  // 원 반지름 (기본 값)
+//        int dx = mousePos.x - note.x;
+//        int dy = mousePos.y - note.y;
+//        return (dx * dx + dy * dy <= radius * radius);  // 원 안에 있으면 true 반환
+//    }
+//    // 슬라이더 형태일 경우 (타입이 2인 경우)
+//    else if (note.type == 2) {
+//        // 슬라이더는 여러 개의 점으로 정의되므로, 슬라이더 경로를 따라 마우스가 있으면 히트 처리
+//        for (size_t i = 0; i < note.sliderPoints.size() - 1; ++i) {
+//            POINT start = note.sliderPoints[i];
+//            POINT end = note.sliderPoints[i + 1];
+//
+//            // 선분에 대해 가까운 지점인지 확인
+//            float dx = end.x - start.x;
+//            float dy = end.y - start.y;
+//            float length = sqrt(dx * dx + dy * dy);
+//            float t = ((mousePos.x - start.x) * dx + (mousePos.y - start.y) * dy) / (length * length);
+//
+//            // t 값이 0과 1 사이일 때는 선분 위에 가까운 점이 있다는 의미
+//            if (t >= 0 && t <= 1) {
+//                float closestX = start.x + t * dx;
+//                float closestY = start.y + t * dy;
+//                int distX = mousePos.x - closestX;
+//                int distY = mousePos.y - closestY;
+//                int distanceSquared = distX * distX + distY * distY;
+//                if (distanceSquared <= 25 * 25) { // 일정 거리 내에 있으면 히트
+//                    return true;
+//                }
+//            }
+//        }
+//    }
+//    return false;  // 그 외에는 히트하지 않음
+//}
 
 //
 //  함수: WndProc(HWND, UINT, WPARAM, LPARAM)
@@ -193,11 +193,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if (LOWORD(wParam) == 1) { // '시작하기' 버튼 클릭
                 ShowWindow(hButton, SW_HIDE); // 버튼 숨기기
                 isPlaying = true; // 게임 시작
+                startTime = std::chrono::steady_clock::now();  // 게임 시작 시간 기록
                 isHomeScreen = false; // 홈 화면 비활성화
                 InvalidateRect(hWnd, NULL, TRUE); // 화면 무효화
                 InitializeGame();
             }
-
         }
         break;
     case WM_PAINT:
@@ -206,7 +206,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             HDC hdc = BeginPaint(hWnd, &ps);
 
             if (isPlaying) {
-                DrawGame(hdc, ps.rcPaint, hWnd);
+                auto currentTime = GetElapsedTime();
+                DrawGame(hdc, ps.rcPaint, hWnd, currentTime);
             }
 
             if (isHomeScreen) {
@@ -300,9 +301,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
             else if (wParam == 'X' || wParam == 'Z') {
                 // 키 입력에 따라 노트를 확인
+                POINT mousePos;
+                GetCursorPos(&mousePos);  // 마우스 위치 얻기
+                ScreenToClient(hWnd, &mousePos);  // 클라이언트 좌표로 변환
+
                 for (auto& note : notes) {
-                    // 이 부분에서 노트의 타이밍을 확인하여 맞는 노트를 찾음
-                    if (IsNoteHit(note, wParam)) {
+                    // 마우스 위치가 노트 안에 있는지 확인하고, 키 입력이 맞는지 체크
+                    if (IsNoteHit(note, wParam, mousePos)) {
                         HandleHit(note);  // 맞은 노트 처리
                         break; // 하나의 노트만 처리하면 되므로 바로 종료
                     }
