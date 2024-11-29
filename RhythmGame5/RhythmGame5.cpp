@@ -193,10 +193,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if (LOWORD(wParam) == 1) { // '시작하기' 버튼 클릭
                 ShowWindow(hButton, SW_HIDE); // 버튼 숨기기
                 isPlaying = true; // 게임 시작
-                startTime = std::chrono::steady_clock::now();  // 게임 시작 시간 기록
                 isHomeScreen = false; // 홈 화면 비활성화
+                InitializeGame(); // 게임 초기화 
                 InvalidateRect(hWnd, NULL, TRUE); // 화면 무효화
-                InitializeGame();
             }
         }
         break;
@@ -206,8 +205,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             HDC hdc = BeginPaint(hWnd, &ps);
 
             if (isPlaying) {
-                auto currentTime = GetElapsedTime();
-                DrawGame(hdc, ps.rcPaint, hWnd, currentTime);
+                DrawGame(hdc, ps.rcPaint, hWnd);
             }
 
             if (isHomeScreen) {
@@ -236,9 +234,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 SelectObject(hMemDC, hOldBitmap);
                 DeleteDC(hMemDC);
                 DeleteObject(hBackground);
-                // 
+
                 // 게임 제목 및 설명 텍스트 그리기
-                // 배경을 투명하게 설정
                 SetBkMode(hdc, TRANSPARENT); // 투명 배경으로 설정
 
                 HFONT hFont = CreateFont(100, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, L"Arial");
@@ -304,14 +301,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 POINT mousePos;
                 GetCursorPos(&mousePos);  // 마우스 위치 얻기
                 ScreenToClient(hWnd, &mousePos);  // 클라이언트 좌표로 변환
-
-                for (auto& note : notes) {
-                    // 마우스 위치가 노트 안에 있는지 확인하고, 키 입력이 맞는지 체크
-                    if (IsNoteHit(note, wParam, mousePos)) {
-                        HandleHit(note);  // 맞은 노트 처리
-                        break; // 하나의 노트만 처리하면 되므로 바로 종료
-                    }
-                }
+                ProcessMouseHit(mousePos);  // 마우스 위치를 넘겨서 히트 확인
             }
         }
         break;       
